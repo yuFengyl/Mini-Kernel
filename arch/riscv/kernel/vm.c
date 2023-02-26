@@ -80,65 +80,34 @@ void setup_vm_final(void) {
 
 void create_mapping(uint64 *pgtbl, uint64 va, uint64 pa, uint64 sz, uint64 perm){
     uint64 i;
-    uint64 *first,*second,*third;
-    // first, second, third represents first, second and third level
-    
-    for(i=0; i<sz; i+=PGSIZE){
+    uint64 *first, *second, *third;
+    uint64 *baseAddress;
+    for (i = 0; i < sz; i += PGSIZE) {
         //first level
-        first = &pgtbl[((va+i)>>30)&0x1FF];
-        if((*first)&0x1) // has been created
-            second = (uint64*)((unsigned long)(((*first)>>10)<<12) + PA2VA_OFFSET);
-        else
-        {
-            second = (uint64*)kalloc();
-            memset(second, 0, PGSIZE);
-            *first = (unsigned long)((*first)&0xffc0000000000000)|(((((unsigned long)second  -PA2VA_OFFSET)>>12)<<10)|(unsigned long)0x1);
+        first = &pgtbl[((va + i) >> 30) & 0x1FF]; // first table entry
+        if (((*first) & 0x1) != 0) { // it is valid
+            baseAddress = (uint64*)((unsigned long)(((*first) >> 10) << 12) + PA2VA_OFFSET);
+        } else { // it is not valid, we need to create a map
+            baseAddress = (uint64*)kalloc();
+            memset(baseAddress, 0, PGSIZE);
+            uint64 highBitMask = (uint64)((*first) & 0xffc0000000000000);
+            uint64 pte = ((((uint64)baseAddress - PA2VA_OFFSET) >> 12) << 10) | (uint64) 0x1;
+            *first = highBitMask | pte; // update the value of the page table entry
         }
-        second = &second[((va+i)>>21)&0x1FF];
-        if((*second)&0x1)// has been created
-            third=(unsigned long*)((unsigned long)(((*second)>>10)<<12)+PA2VA_OFFSET);
-        else
-        {
-            third = (uint64*)kalloc();
-            memset(third,0,PGSIZE);
-            *second = (unsigned long)((*second)&0xffc0000000000000)|(((((unsigned long)third-PA2VA_OFFSET)>>12)<<10)|(unsigned long)0x1);
+        second = &baseAddress[((va + i) >> 21) & 0x1FF];
+        if(((*second) & 0x1) != 0) { // it is valid
+            baseAddress = (uint64*)((unsigned long)(((*second) >> 10) << 12) + PA2VA_OFFSET);
+        } else {
+            baseAddress = (uint64*)kalloc();
+            memset(baseAddress, 0, PGSIZE);
+            uint64 highBitMask = (uint64)((*second) & 0xffc0000000000000);
+            uint64 pte = ((((uint64)baseAddress - PA2VA_OFFSET) >> 12) << 10) | (uint64) 0x1;
+            *second = highBitMask | pte; // update the value of the page table entry
         }
-        third = &third[((va+i)>>12)&0x1FF];
-        *third = (unsigned long)(((*third)&0xffc0000000000000)|((((unsigned long)(pa+i)>>12)<<10)|0x1|perm));  
+        third = &baseAddress[((va + i) >> 12) & 0x1FF];
+        uint64 highBitMask = (uint64)((*third) & 0xffc0000000000000);
+        uint64 pte = ((((uint64)pa + i) >> 12) << 10) | (uint64) 0x1 | perm;
+        *third = highBitMask | pte;
 	}
     return;
 }
-
-/* 
-void create_mapping(uint64 *pgtbl, uint64 va, uint64 pa, uint64 sz, uint64 perm)
-{
-    
-    uint64 thisva;
-    uint64 thispa;
-    int level;
-    uint64 thispte;
-    uint64* thisbase = pgtbl;
-    for (thispa = pa, thisva = va; thisva < va + sz; thisva = thisva + PGSIZE, thispa = thispa + PGSIZE)
-    {
-        // 这里是大于0，因为最底层的页表此时是不可能被写过的 
-        for (level=2; level>0; level--)
-        {
-            if (level == 2)
-                thispte = thisbase[(thisva>>30) & 0x1ff];
-            else
-                thispte = thisbase[(thisva>>21) & 0x1ff];
-            
-            // 判断一下有没有写过
-            if (thispte & 0x1)
-            // 注意，这里需要转换到虚拟地址
-                thisbase = (uint64 *)(((thispte >> 10) << 12) + PA2VA_OFFSET);
-            else // 说明需要分配一块新的空间
-            {
-                thisbase = (uint64 *)kalloc();
-                memset(thisbase, 0, PGSIZE);
-                WritePTE(&thispte, ((unsigned long)thisbase -  PA2VA_OFFSET) >> 12, 0, 1);
-            }
-        }
-        WritePTE(&thisbase[(va>>12) & 0x1ff], ((unsigned long)thispa) >> 12, perm, 1);
-    }
-} */

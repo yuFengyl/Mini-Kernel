@@ -26,6 +26,7 @@ void forkret() {
 }
 
 uint64 do_fork(struct pt_regs *regs) {
+    // 设置好子进程的 state, counter, priority, pid 等，并将该子进程正确添加至到全局变量 task 数组中
     task[this] = (struct task_struct*)kalloc();
     task[this]->state = TASK_RUNNING;
     task[this]->counter = 0;
@@ -34,16 +35,19 @@ uint64 do_fork(struct pt_regs *regs) {
 
     unsigned long * user_stack = kalloc();
     unsigned long sscratch = csr_read(sscratch);
+    // 并将父进程用户栈的内容拷贝到子进程的用户栈中。
     for(int i=0; i<512; i++)
 	    user_stack[i]=((unsigned long*)(USER_END-PGSIZE))[i];
 
     task[this]->user_stack = (unsigned long)user_stack+PGSIZE;
 
+    // TODO ?
     task[this]->thread.ra = (uint64)forkret;
     task[this]->thread.sp = (uint64)task[this]+PGSIZE;
     task[this]->thread.sscratch = task[this]->thread.sp;
     task[this]->thread.sepc = regs->sepc;
 
+    // 正确设置子进程的 pgd 成员变量，为子进程分配根页表，并将内核根页表 swapper_pg_dir 的内容复制到子进程的根页表中，从而对于子进程来说只建立了内核的页表映射。
     unsigned long * newpagetable=kalloc();
     task[this]->pgd = (unsigned long)newpagetable-PA2VA_OFFSET;
     for(int i=0; i<512; i++)
@@ -59,6 +63,7 @@ uint64 do_fork(struct pt_regs *regs) {
     struct vm_area_struct* prev = task[this]->mm->mmap;
     struct vm_area_struct* firstcreate;
     uint64 vmflag = 0;
+    // 复制父进程的 vma 链表。
     while(thisvm != firstvm || (thisvm == firstvm && vmflag == 0)){
 	    new = (struct vm_area_struct*)kalloc();
 	    new->vm_mm = thisvm->vm_mm;
@@ -80,6 +85,7 @@ uint64 do_fork(struct pt_regs *regs) {
         thisvm = thisvm->vm_next;
         vmflag++;
     }
+    // 正确设置子进程的 trapframe 成员变量。将父进程的上下文环境（即传入的 regs）保存到子进程的 trapframe 中。
     task[this]->trapframe->sepc = regs->sepc; 
     task[this]->trapframe->sstatus = regs->sstatus;
     for (int i=0; i<31; i++)
